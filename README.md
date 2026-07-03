@@ -1,6 +1,6 @@
 # Autonomous Business Research Agent
 
-An autonomous, multi-agent research pipeline built with **LangChain 1.x** that takes a single business idea typed by a user and turns it into a polished, professionally formatted **Word (.docx) business research report** — with zero manual research, writing, or formatting required.
+An autonomous, multi-agent research pipeline built with **LangChain 1.x** that takes a single business idea typed by a user and turns it into a polished, professionally formatted **Word (.docx) business research report**  with zero manual research, writing, or formatting required.
 
 You type a business idea (e.g. *"poultry farming business"*), and four specialized LLM agents work in sequence to search the web, scrape sources, clean the raw content, merge everything into a structured report, and export it as a formatted `.docx` file.
 
