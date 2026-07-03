@@ -371,11 +371,3 @@ This is expected and by design — the Planner is instructed to report gaps hone
 Double-check `.env` formatting (see above) and confirm the relevant API key hasn't expired or hit a rate limit.
 
 ---
-
-## Possible Future Improvements
-
-- Convert `main.py` into a CLI with flags (`--topic`, `--skip-cleaning`, etc.) instead of an interactive `input()` prompt.
-- Add retry/backoff logic around each LLM provider call for transient rate-limit errors.
-- Allow the 13 research sub-topics to be configurable instead of hardcoded in the Planner's system prompt.
-- Add a PDF export option alongside DOCX.
-- Add unit tests for `Tools/md_to_docx.py`'s Markdown parser (tables and inline formatting in particular).
