@@ -1,0 +1,2 @@
+## Risks in the Poultry Industry
+The poultry industry faces significant risks, including biological threats (e.g., Avian Influenza/bird flu) that can result in massive livestock loss, regulatory pressures regarding animal welfare and environmental standards, and market risks such as volatile feed ingredient prices and competition. Financial risks stem from high initial capital requirements and narrow, sensitive profit margins, while operational risks involve disease management, energy cost fluctuations, and supply chain disruptions.

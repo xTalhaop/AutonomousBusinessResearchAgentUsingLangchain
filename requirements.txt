@@ -1,0 +1,27 @@
+# ==========================================================
+# Autonomous Business Research Agent — Python dependencies
+# Tested on Python 3.11 - 3.13
+# ==========================================================
+
+# --- Core LangChain / agent framework ---
+langchain>=1.0.0            # create_agent, agent orchestration
+langchain-core>=0.3.0       # @tool decorator, message types
+langgraph>=0.2.0            # underlying graph runtime used by create_agent
+
+# --- LLM providers ---
+langchain-google-genai>=2.0.0   # Gemini models (Planner + Report Generator agents)
+langchain-groq>=0.2.0           # Groq-hosted Llama models (Cleaner + Merger agents)
+
+# --- Web search tool ---
+langchain-tavily>=0.1.0     # Tavily search API wrapper used by Tools/search.py
+
+# --- Scraping & content conversion ---
+requests>=2.31.0            # HTTP requests for Tools/scrape.py
+beautifulsoup4>=4.12.0      # HTML parsing for Tools/scrape.py
+markdownify>=0.13.0         # HTML -> Markdown conversion for Tools/html_to_md.py
+
+# --- Document generation ---
+python-docx>=1.1.0          # DOCX generation for Tools/md_to_docx.py
+
+# --- Environment / config ---
+python-dotenv>=1.0.0        # Loads API keys from .env

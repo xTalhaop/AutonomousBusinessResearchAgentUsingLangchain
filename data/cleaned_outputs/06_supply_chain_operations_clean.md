@@ -1,0 +1,2 @@
+# Poultry Supply Chain and Operations
+Poultry supply chain and operations focus on critical areas: feed production, water usage, waste and litter management, and energy consumption in processing plants (e.g., refrigeration). Sustainability and efficiency are major operational priorities, as they both reduce environmental footprints and lower costs. Key challenges involve managing energy-intensive processing, waste disposal compliance, and tracking performance metrics across the farm-to-plant supply chain.

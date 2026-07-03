@@ -1,0 +1,1 @@
+Poultry business models have evolved from independent farming to integrated/contract farming. In contract farming, the integrator provides day-old chicks, feed, medicine, and technical support, while the farmer provides land, labor, and infrastructure. This model shifts most operational risks to the integrator and offers farmers an assured return per batch.
