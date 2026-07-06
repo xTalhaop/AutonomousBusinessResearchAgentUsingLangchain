@@ -53,47 +53,47 @@ It is intentionally split into specialized agents, instead of one giant prompt, 
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                              USER INPUT                                     │
-│                 "Enter business idea: <your topic here>"                    │
+│                              USER INPUT                                      │
+│                 "Enter business idea: <your topic here>"                     │
 └──────────────────────────────────────────────────────────────────────────────┘
                                       │
                                       ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ STAGE 1: PLANNER / COLLECTOR AGENT                                          │
-│ File: Agents/planner.py                                                     │
-│ Model: Gemini (gemini-3.1-flash-lite)                                       │
+│ STAGE 1: PLANNER / COLLECTOR AGENT                                           │
+│ File: Agents/planner.py                                                      │
+│ Model: Gemini (gemini-3.1-flash-lite)                                        │
 │                                                                              │
 │ Internal Tools:                                                              │
-│   • search(query)    -> TavilySearch URLs                                   │
-│   • scrape(url)      -> requests + BeautifulSoup text extraction            │
-│   • html_to_md(html, filename) -> markdownify + save .md to disk            │
+│   • search(query)    -> TavilySearch URLs                                    │
+│   • scrape(url)      -> requests + BeautifulSoup text extraction             │
+│   • html_to_md(html, filename) -> markdownify + save .md to disk             │
 │                                                                              │
 │ Behavior:                                                                    │
 │   • Covers 13 business sub-topics                                            │
-│   • Searches, scrapes, and MUST persist each useful scrape                  │
+│   • Searches, scrapes, and MUST persist each useful scrape                   │
 │ Output Directory: data/outputs/*.md                                          │
 └──────────────────────────────────────────────────────────────────────────────┘
                                       │
                                       ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ STAGE 2: CLEANER AGENT                                                      │
-│ File: Agents/cleaner.py                                                     │
-│ Model: Groq Llama (llama-3.3-70b-versatile)                                 │
-│ Tools: none (pure text transformation agent)                                │
+│ STAGE 2: CLEANER AGENT                                                       │
+│ File: Agents/cleaner.py                                                      │
+│ Model: Groq Llama (llama-3.3-70b-versatile)                                  │
+│ Tools: none (pure text transformation agent)                                 │
 │                                                                              │
 │ Behavior:                                                                    │
-│   • Reads every markdown file in data/outputs                               │
-│   • Removes web noise (nav/footer/cookies/ads/newsletters/social links)     │
-│   • Preserves facts, examples, tables, warnings, useful links               │
-│ Output Directory: data/cleaned_outputs/*_clean.md                           │
+│   • Reads every markdown file in data/outputs                                │
+│   • Removes web noise (nav/footer/cookies/ads/newsletters/social links)      │
+│   • Preserves facts, examples, tables, warnings, useful links                │
+│ Output Directory: data/cleaned_outputs/*_clean.md                            │
 └──────────────────────────────────────────────────────────────────────────────┘
                                       │
                                       ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ STAGE 3: MERGER AGENT                                                       │
-│ File: Agents/merger.py                                                      │
-│ Model: Groq Llama (llama-3.3-70b-versatile)                                 │
-│ Tools: none (pure synthesis/structuring agent)                              │
+│ STAGE 3: MERGER AGENT                                                        │
+│ File: Agents/merger.py                                                       │
+│ Model: Groq Llama (llama-3.3-70b-versatile)                                  │
+│ Tools: none (pure synthesis/structuring agent)                               │
 │                                                                              │
 │ Behavior:                                                                    │
 │   • Reads all cleaned files in order                                         │
@@ -104,12 +104,12 @@ It is intentionally split into specialized agents, instead of one giant prompt, 
                                       │
                                       ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ STAGE 4: FINAL REPORT GENERATOR AGENT                                       │
-│ File: Agents/final_report_generator.py                                      │
-│ Model: Gemini (gemini-2.5-flash)                                            │
+│ STAGE 4: FINAL REPORT GENERATOR AGENT                                        │
+│ File: Agents/final_report_generator.py                                       │
+│ Model: Gemini (gemini-2.5-flash)                                             │
 │                                                                              │
 │ Internal Tool:                                                               │
-│   • md_to_docx(input_file, output_file, title?)                             │
+│   • md_to_docx(input_file, output_file, title?)                              │
 │     (custom markdown parser + python-docx renderer)                          │
 │                                                                              │
 │ Behavior:                                                                    │
