@@ -549,5 +549,3 @@ This project is a practical, modular, production-style multi-agent pipeline for 
 - **Clean** losslessly  
 - **Merge** coherently  
 - **Export** professionally  
-
-If you want, next I can also give you a **second short README version** (portfolio style) and keep this one as the full technical documentation.
