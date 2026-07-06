@@ -1,373 +1,553 @@
-# Autonomous Business Research Agent
+# Autonomous Business Research Agent (LangChain Multi-Agent Pipeline)
 
-An autonomous, multi-agent research pipeline built with **LangChain 1.x** that takes a single business idea typed by a user and turns it into a polished, professionally formatted **Word (.docx) business research report**  with zero manual research, writing, or formatting required.
+An autonomous **4-stage research pipeline** built with **LangChain 1.x** that transforms one business idea into a polished, structured **Word (.docx)** report.
 
-You type a business idea (e.g. *"poultry farming business"*), and four specialized LLM agents work in sequence to search the web, scrape sources, clean the raw content, merge everything into a structured report, and export it as a formatted `.docx` file.
+You provide a topic (for example, *“poultry farming business”*), and the system runs four specialized agents in sequence:
+
+1. Planner / Collector Agent  
+2. Cleaner Agent  
+3. Merger Agent  
+4. Report Generator Agent  
+
+Each stage has one clear responsibility and passes output through files on disk, making the system easy to debug, resume, and inspect.
 
 ---
 
 ## Table of Contents
 
-1. [How It Works — High-Level Overview](#how-it-works--high-level-overview)
-2. [Pipeline Architecture](#pipeline-architecture)
-3. [Technology Stack](#technology-stack)
-4. [Project Structure](#project-structure)
-5. [Step-by-Step Walkthrough of Each Agent](#step-by-step-walkthrough-of-each-agent)
-6. [Tools Explained](#tools-explained)
-7. [Setup & Installation](#setup--installation)
-8. [Environment Variables](#environment-variables)
-9. [How to Run](#how-to-run)
-10. [Output Files & Where They Go](#output-files--where-they-go)
-11. [Design Decisions & Known Limitations](#design-decisions--known-limitations)
-12. [Troubleshooting](#troubleshooting)
-13. [Possible Future Improvements](#possible-future-improvements)
+1. [What This Project Does](#what-this-project-does)
+2. [Detailed Architecture Diagram](#detailed-architecture-diagram)
+3. [How the Pipeline Works (Deep Dive)](#how-the-pipeline-works-deep-dive)
+4. [Agents Explained](#agents-explained)
+5. [Tools Explained in Depth](#tools-explained-in-depth)
+6. [Technology Stack](#technology-stack)
+7. [Project Structure](#project-structure)
+8. [Setup & Installation](#setup--installation)
+9. [Environment Variables](#environment-variables)
+10. [How to Run](#how-to-run)
+11. [Outputs & Artifacts](#outputs--artifacts)
+12. [Design Decisions](#design-decisions)
+13. [Known Limitations](#known-limitations)
+14. [Troubleshooting](#troubleshooting)
+15. [Future Improvements](#future-improvements)
 
 ---
 
-## How It Works — High-Level Overview
+## What This Project Does
 
-This project is a **4-stage autonomous pipeline**, where each stage is its own independent LangChain agent with its own LLM, its own system prompt, and its own single responsibility. The stages run one after another, and each stage's output on disk becomes the next stage's input.
+This project automates business research into a final report pipeline:
 
-```
-User types a business idea
-        │
-        ▼
-┌─────────────────┐
-│  1. Planner /    │  Searches the web, scrapes pages, saves raw
-│     Collector    │  markdown files for 13 research sub-topics
-└────────┬─────────┘
-         ▼
-┌─────────────────┐
-│  2. Cleaner      │  Strips ads/nav/junk from each raw file,
-│                  │  keeps only research-relevant content
-└────────┬─────────┘
-         ▼
-┌─────────────────┐
-│  3. Merger       │  Combines all cleaned files into ONE
-│                  │  coherent, structured Markdown report
-└────────┬─────────┘
-         ▼
-┌─────────────────┐
-│  4. Report       │  Converts the final Markdown report into
-│     Generator    │  a formatted Word (.docx) document
-└────────┬─────────┘
-         ▼
-   business_report.docx
-```
+- Collects web sources across fixed business sub-topics
+- Scrapes and converts raw page content into markdown files
+- Cleans junk content (ads/nav/cookies/etc.)
+- Merges all cleaned files into one coherent report
+- Exports report to a professional DOCX document
 
-This is a **multi-agent system**, not a single monolithic prompt — each agent is deliberately narrow in scope (single-responsibility principle applied to LLM agents), which makes the pipeline easier to debug, easier to swap models for, and far more reliable than asking one agent to "research and write a report" in one shot.
+It is intentionally split into specialized agents, instead of one giant prompt, to improve reliability and maintainability.
 
 ---
 
-## Pipeline Architecture
+## Detailed Architecture Diagram
 
-| Stage | Agent Name | LLM Provider | Model | Job |
-|---|---|---|---|---|
-| 1 | Planner / Collector | Google Gemini | `gemini-3.1-flash-lite` | Search the web, scrape pages, save raw markdown |
-| 2 | Cleaner | Groq (Llama) | `llama-3.3-70b-versatile` | Strip noise from each raw markdown file |
-| 3 | Merger | Groq (Llama) | `llama-3.3-70b-versatile` | Merge cleaned files into one structured report |
-| 4 | Report Generator | Google Gemini | `gemini-2.5-flash` | Convert final Markdown into a DOCX file via a tool call |
+> The diagram below is intentionally deeper than a high-level flow: each agent block shows the tools/models it uses and what it writes.
 
-**Why two different LLM providers?** Gemini is used for the tool-heavy, agentic steps (web search + scraping + file export) where its tool-calling and large context window are useful. Groq's Llama 3.3 70B is used for the pure text-transformation steps (cleaning, merging) where speed matters more and no external tools are needed — Groq's inference is extremely fast, which keeps the cleaning stage (which runs once **per file**, often 10-15 times) from becoming a bottleneck.
+```text
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                              USER INPUT                                     │
+│                 "Enter business idea: <your topic here>"                    │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ STAGE 1: PLANNER / COLLECTOR AGENT                                          │
+│ File: Agents/planner.py                                                     │
+│ Model: Gemini (gemini-3.1-flash-lite)                                       │
+│                                                                              │
+│ Internal Tools:                                                              │
+│   • search(query)    -> TavilySearch URLs                                   │
+│   • scrape(url)      -> requests + BeautifulSoup text extraction            │
+│   • html_to_md(html, filename) -> markdownify + save .md to disk            │
+│                                                                              │
+│ Behavior:                                                                    │
+│   • Covers 13 business sub-topics                                            │
+│   • Searches, scrapes, and MUST persist each useful scrape                  │
+│ Output Directory: data/outputs/*.md                                          │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ STAGE 2: CLEANER AGENT                                                      │
+│ File: Agents/cleaner.py                                                     │
+│ Model: Groq Llama (llama-3.3-70b-versatile)                                 │
+│ Tools: none (pure text transformation agent)                                │
+│                                                                              │
+│ Behavior:                                                                    │
+│   • Reads every markdown file in data/outputs                               │
+│   • Removes web noise (nav/footer/cookies/ads/newsletters/social links)     │
+│   • Preserves facts, examples, tables, warnings, useful links               │
+│ Output Directory: data/cleaned_outputs/*_clean.md                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ STAGE 3: MERGER AGENT                                                       │
+│ File: Agents/merger.py                                                      │
+│ Model: Groq Llama (llama-3.3-70b-versatile)                                 │
+│ Tools: none (pure synthesis/structuring agent)                              │
+│                                                                              │
+│ Behavior:                                                                    │
+│   • Reads all cleaned files in order                                         │
+│   • Deduplicates overlap while preserving unique facts                       │
+│   • Produces one coherent, sectioned business report                         │
+│ Output File: data/merged_output/merged_report.md                             │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ STAGE 4: FINAL REPORT GENERATOR AGENT                                       │
+│ File: Agents/final_report_generator.py                                      │
+│ Model: Gemini (gemini-2.5-flash)                                            │
+│                                                                              │
+│ Internal Tool:                                                               │
+│   • md_to_docx(input_file, output_file, title?)                             │
+│     (custom markdown parser + python-docx renderer)                          │
+│                                                                              │
+│ Behavior:                                                                    │
+│   • Always tool-calls md_to_docx                                             │
+│   • Converts merged markdown into professional .docx                         │
+│ Output File: data/final_reports/business_report.docx                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+                       FINAL DELIVERABLE: business_report.docx
+```
 
-**Why is data passed via the filesystem instead of in-memory?**
-Each stage writes its output to a folder on disk, and the next stage reads from that folder. This is intentional:
-- It makes the pipeline **resumable** — if stage 3 fails, you don't have to re-run stage 1's expensive web scraping.
-- It makes each stage **independently debuggable** — you can open `outputs/`, `cleaned_outputs/`, or `merged_output/` at any time and inspect exactly what an agent produced.
-- It avoids blowing past LLM context windows by not passing the entire accumulated pipeline state through every function call in memory.
+---
+
+## How the Pipeline Works (Deep Dive)
+
+### 1) Planner / Collector (Breadth-first research)
+
+- Receives the user business topic.
+- Executes multiple searches and web fetches across **13 fixed business dimensions**:
+  - Industry overview
+  - Market size/growth
+  - Business models
+  - Startup requirements
+  - Competition
+  - Supply chain
+  - Customers/demand
+  - Revenue/profitability
+  - Risks/challenges
+  - Regulations/compliance
+  - Technology/innovation
+  - Opportunities
+  - Practical first steps
+- Saves each useful page as raw markdown in `data/outputs/`.
+
+This stage optimizes for **coverage**, not polish.
+
+### 2) Cleaner (Lossless cleanup)
+
+- Processes each raw markdown file independently.
+- Removes boilerplate webpage noise.
+- Keeps research content intact.
+- Writes cleaned files to `data/cleaned_outputs/`.
+
+This stage optimizes for **signal extraction**.
+
+### 3) Merger (Single coherent report)
+
+- Reads all cleaned files.
+- Merges and structures data using business-report headings.
+- Removes duplicates while preserving unique details.
+- Writes `merged_report.md`.
+
+This stage optimizes for **coherence and structure**.
+
+### 4) Report Generator (Markdown → DOCX)
+
+- Runs a tool-using agent that calls `md_to_docx`.
+- Converts markdown elements into native Word formatting.
+- Writes final `.docx` report.
+
+This stage optimizes for **deliverable quality**.
+
+---
+
+## Agents Explained
+
+### Stage 1 — `Agents/planner.py`
+
+- Uses `ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite")`
+- Registered tools: `search`, `scrape`, `html_to_md`
+- System prompt enforces:
+  - mandatory sub-topic coverage
+  - mandatory persistence after useful scrapes
+  - no final-report writing at this stage
+
+### Stage 2 — `Agents/cleaner.py`
+
+- Uses `ChatGroq(model="llama-3.3-70b-versatile")`
+- No tool calls; pure content cleaning
+- Reads from `data/outputs/*.md`, writes `data/cleaned_outputs/*_clean.md`
+
+### Stage 3 — `Agents/merger.py`
+
+- Uses `ChatGroq(model="llama-3.3-70b-versatile")`
+- Reads all cleaned docs, creates one merged markdown report
+- Output: `data/merged_output/merged_report.md`
+
+### Stage 4 — `Agents/final_report_generator.py`
+
+- Uses `ChatGoogleGenerativeAI(model="gemini-2.5-flash")`
+- Tool-enabled with `md_to_docx`
+- Writes final DOCX at `data/final_reports/business_report.docx`
+
+---
+
+## Tools Explained in Depth
+
+This section explains both **what each tool does** and the underlying concepts/libraries.
+
+### 1) `Tools/search.py` — Tavily-powered web URL discovery
+
+#### Function
+`search(query: str) -> list[str]`
+
+#### What it does
+- Uses `langchain_tavily.TavilySearch` to discover relevant web pages for a query.
+- Returns a list of URLs (not full page text).
+- Keeps retrieval lightweight so the Planner can do many searches across all 13 sub-topics.
+
+#### Tavily (deeper explanation)
+
+**Tavily** is a search API designed for **LLM/agent retrieval pipelines**, not only for human browsing.  
+Instead of returning noisy web UI output, it provides structured search results that agents can process directly.
+
+Why that matters in this project:
+- The Planner needs to run repeated search loops quickly.
+- We need link discovery first, then controlled scraping with our own tool.
+- Structured results reduce friction in agent tool-calling workflows.
+
+#### How Tavily fits this pipeline
+
+The retrieval flow in this project is intentionally split:
+
+1. `search()` (Tavily) finds candidate URLs.
+2. `scrape()` fetches page content from selected URLs.
+3. `html_to_md()` converts/saves that content to markdown files.
+
+This separation is important:
+- Tavily handles **source discovery**.
+- Your own tools handle **content extraction and persistence**.
+- Downstream agents (Cleaner/Merger) work on files, not transient responses.
+
+#### Current Tavily configuration in your code
+
+- `search_depth="fast"`  
+  Faster, lower-cost retrieval. Good for high-volume iterative research loops.
+- `max_results=5`  
+  Prevents oversized result sets and keeps agent decisions focused.
+- `topic="general"`  
+  Broad domain behavior suitable for varied business topics.
+- `include_answer=False`  
+  Disables Tavily-generated answer synthesis (you only need sources here).
+- `include_raw_content=False`  
+  Avoids returning heavy page bodies at search stage; scraping is delegated to `scrape()`.
+
+#### Practical trade-offs
+
+- `fast` depth improves speed and cost efficiency but may miss some deeper sources.
+- Increasing depth or result count can improve recall, but increases token/tool usage.
+- Source quality can still vary; your Cleaner/Merger stages and prompt strategy help control this.
+
+#### When Tavily is a strong fit
+- Agentic research pipelines
+- Multi-step retrieval/scrape/save workflows
+- Situations where you want tool-friendly, structured web discovery
+
+---
+
+### 2) `Tools/scrape.py` — Requests + BeautifulSoup extraction
+
+#### Function
+`scrape(url: str) -> str`
+
+#### What it does
+- Fetches a web page with `requests.get(...)`.
+- Parses HTML via `BeautifulSoup`.
+- Removes typical non-content tags:
+  - `script`, `style`, `nav`, `footer`, `header`, `noscript`
+- Converts remaining DOM to plain text (`get_text(...)`).
+- Truncates to max 6000 chars to control token usage.
+
+#### BeautifulSoup concept (important)
+**BeautifulSoup** is a Python HTML/XML parser that turns raw markup into a traversable tree.  
+Why useful here:
+- you can programmatically remove noisy tag sections
+- you can extract text from semantic content regions
+- robust against imperfect HTML in real-world pages
+
+---
+
+### 3) `Tools/html_to_md.py` — HTML → Markdown persistence tool
+
+#### Function
+`html_to_md(html: str, filename: str) -> str`
+
+#### What it does
+- Parses HTML with BeautifulSoup.
+- Removes noise tags (same strip list concept).
+- Converts cleaned HTML to markdown via `markdownify`.
+- Writes to `data/outputs/<filename>`.
+
+#### markdownify concept
+**markdownify** converts HTML structure into markdown syntax:
+- headings become `#`-style headings
+- links become `[text](url)`
+- lists and paragraphs are mapped to markdown equivalents
+
+Why this matters:
+- markdown is easier for downstream LLM processing than raw HTML
+- keeps a readable archival intermediate format on disk
+
+---
+
+### 4) `Tools/md_to_docx.py` — Custom Markdown parser + Word renderer
+
+#### Function
+`md_to_docx(input_file: str, output_file: str, title: str = None) -> str`
+
+#### What it does
+- Reads markdown file.
+- Creates a DOCX with `python-docx`.
+- Applies consistent styling (Calibri, margins, heading styles).
+- Parses markdown lines and maps to Word constructs:
+  - headings (`#` to `####`)
+  - bold/italic inline runs
+  - numbered and bulleted lists
+  - horizontal rules
+  - markdown tables (header separator detection)
+
+#### python-docx concept
+**python-docx** is a Python library for generating/editing `.docx` files programmatically.  
+In this project it’s used to:
+- produce a true Word document (not plain text with `.docx` extension)
+- apply consistent typography and spacing
+- render tables/lists/headings natively for professional output
+
+#### Why custom parser instead of off-the-shelf conversion?
+- Full control over formatting behavior
+- predictable output based on your report style
+- easy to extend for your own markdown conventions
 
 ---
 
 ## Technology Stack
 
-| Category | Technology | Purpose |
+| Layer | Technology | Purpose |
 |---|---|---|
-| Agent framework | **LangChain 1.x** (`langchain.agents.create_agent`) | Builds each stage as an autonomous tool-using agent |
-| Agent runtime | **LangGraph** | Underlying graph execution engine that `create_agent` runs on |
-| LLM Provider 1 | **Google Gemini** (`langchain-google-genai`) | Powers the Planner and Report Generator agents |
-| LLM Provider 2 | **Groq** (`langchain-groq`) | Powers the Cleaner and Merger agents (Llama 3.3 70B) |
-| Web search | **Tavily** (`langchain-tavily`) | Returns relevant URLs for each research sub-topic |
-| Web scraping | **Requests** + **BeautifulSoup4** | Fetches and parses raw HTML content from URLs |
-| HTML → Markdown | **markdownify** | Converts scraped HTML into clean Markdown |
-| Markdown → DOCX | **python-docx** (custom parser) | Hand-written Markdown parser that renders headings, tables, lists, bold/italic into a formatted Word document |
-| Config | **python-dotenv** | Loads API keys from a local `.env` file |
-| Language | **Python 3.11+** | |
+| Agent orchestration | LangChain 1.x (`create_agent`) | Build tool-using and non-tool agents |
+| Graph runtime | LangGraph | Execution engine under agent workflows |
+| LLM provider A | Google Gemini (`langchain-google-genai`) | Planner + DOCX export agent |
+| LLM provider B | Groq-hosted Llama (`langchain-groq`) | Cleaner + Merger agents |
+| Web retrieval | Tavily (`langchain-tavily`) | URL search results |
+| Web fetch/parsing | Requests + BeautifulSoup4 | HTTP fetch + HTML parsing |
+| HTML conversion | markdownify | HTML → Markdown |
+| DOCX generation | python-docx | Markdown → Word output |
+| Config | python-dotenv | Load `.env` secrets |
+| Language | Python 3.11+ | Runtime |
 
 ---
 
 ## Project Structure
 
-```
-AutonomousBusinessResearchAgentLangchain/
+```text
+AutonomousBusinessResearchAgentUsingLangchain/
 │
-├── main.py                        # Entry point — runs all 4 stages in order
-├── requirements.txt                # Python dependencies
-├── .env                            # API keys (not committed — see Environment Variables)
+├── main.py
+├── requirements.txt
+├── .gitignore
+├── README.md
 │
 ├── Agents/
-│   ├── planner.py                  # Stage 1: Collector agent
-│   ├── cleaner.py                  # Stage 2: Cleaning agent
-│   ├── merger.py                   # Stage 3: Merge & Report agent
-│   ├── final_report_generator.py   # Stage 4: DOCX export agent
-│   │
-│   ├── outputs/                    # Raw scraped markdown (Stage 1 output)
-│   ├── cleaned_outputs/            # Cleaned markdown (Stage 2 output)
-│   ├── merged_output/              # Final merged report .md (Stage 3 output)
-│   └── final_reports/              # Final business_report.docx (Stage 4 output)
+│   ├── planner.py
+│   ├── cleaner.py
+│   ├── merger.py
+│   └── final_report_generator.py
 │
-└── Tools/
-    ├── search.py                   # Tavily web search tool
-    ├── scrape.py                   # BeautifulSoup HTML scraper tool
-    ├── html_to_md.py                # HTML → Markdown + save-to-file tool
-    └── md_to_docx.py                # Markdown → formatted DOCX tool
+├── Tools/
+│   ├── search.py
+│   ├── scrape.py
+│   ├── html_to_md.py
+│   └── md_to_docx.py
+│
+└── data/
+    ├── outputs/
+    ├── cleaned_outputs/
+    ├── merged_output/
+    └── final_reports/
 ```
-
-Each folder under `Agents/` (`outputs/`, `cleaned_outputs/`, `merged_output/`, `final_reports/`) is created automatically at runtime if it doesn't exist — you never need to create them manually.
-
----
-
-## Step-by-Step Walkthrough of Each Agent
-
-### Stage 1 — Planner / Collector Agent (`Agents/planner.py`)
-
-**Role:** Gather raw research material. This agent does **not** write a report — its only job is breadth of coverage.
-
-**Model:** `gemini-3.1-flash-lite` via `ChatGoogleGenerativeAI`
-
-**Tools given to this agent:**
-- `search` — find URLs for a query
-- `scrape` — fetch and clean the text content of a URL
-- `html_to_md` — convert content to Markdown and save it to `outputs/`
-
-**How it operates:**
-1. The system prompt instructs the agent to research **13 fixed sub-topics** covering every angle of starting and running the business: Industry Overview, Market Size & Growth, Business Models, Startup Requirements, Key Players & Competition, Supply Chain & Operations, Customers & Demand, Revenue & Profitability, Risks & Challenges, Regulations & Compliance, Technology & Innovation, Opportunities for Newcomers, and Practical First Steps.
-2. For each sub-topic, the agent calls `search` to find 3-5 credible URLs, then `scrape` on the 2-3 most promising ones.
-3. **Every single successful scrape must be immediately followed by a call to `html_to_md`** — the system prompt makes this mandatory so no scraped content is lost before being persisted to disk.
-4. Files are saved with a numbered naming convention (e.g. `04_startup_requirements_licensing.md`) so downstream stages can process them in a sensible order.
-5. The agent is explicitly told **not** to clean, summarize, or filter content quality at this stage — that's the next agent's job. Breadth over polish.
-6. When finished, it prints a short status summary of what was covered and flags any sub-topics where good sources couldn't be found.
-
-**Output:** A folder of raw, messy, possibly redundant `.md` files in `Agents/outputs/`.
-
-### Stage 2 — Cleaner Agent (`Agents/cleaner.py`)
-
-**Role:** Strip web page noise out of each raw file, one file at a time.
-
-**Model:** `llama-3.3-70b-versatile` via `ChatGroq` (no tools — pure text transformation)
-
-**How it operates:**
-1. Reads every `.md` file in `Agents/outputs/`.
-2. For each file, sends the raw markdown to the LLM with a system prompt instructing it to remove navigation menus, cookie notices, ads, newsletter prompts, social buttons, "related articles" sections, footers/headers, and duplicate/broken formatting — while preserving every fact, table, list, code block, and useful hyperlink.
-3. Critically, the prompt tells the model **not to summarize or rewrite** — this is lossless cleanup, not compression.
-4. Saves each result to `Agents/cleaned_outputs/{original_filename}_clean.md`.
-
-**Output:** The same number of files as Stage 1, but noise-free, in `Agents/cleaned_outputs/`.
-
-### Stage 3 — Merger Agent (`Agents/merger.py`)
-
-**Role:** Combine every cleaned file into one single, coherent, well-organized report.
-
-**Model:** `llama-3.3-70b-versatile` via `ChatGroq` (no tools — pure text transformation)
-
-**How it operates:**
-1. Reads every `*_clean.md` file from `Agents/cleaned_outputs/` in sorted (numeric) order.
-2. Concatenates them into one large prompt, each document clearly delimited and labeled with its filename, prefixed with the original research topic the user typed.
-3. The system prompt gives the LLM a fixed report structure to follow (Executive Summary → Industry Overview → ... → Conclusion → References) and instructs it to deduplicate information across sources while preserving every unique fact.
-4. Saves the single resulting Markdown document to `Agents/merged_output/merged_report.md`.
-
-**Output:** One polished Markdown file — the full business report, still in `.md` form.
-
-### Stage 4 — Report Generator / DOCX Export Agent (`Agents/final_report_generator.py`)
-
-**Role:** Convert the final Markdown report into a professionally formatted Word document.
-
-**Model:** `gemini-2.5-flash` via `ChatGoogleGenerativeAI`
-
-**Tools given to this agent:**
-- `md_to_docx` — a custom tool (see [Tools Explained](#tools-explained)) that parses Markdown and builds a `.docx` file
-
-**How it operates:**
-1. The agent is instructed to always call the `md_to_docx` tool and never attempt to "answer" the conversion manually in text.
-2. It's told the exact input path (`merged_output/merged_report.md`) and output path (`final_reports/business_report.docx`).
-3. The tool itself does all the real work: it parses the Markdown line-by-line and converts headings, bold/italic text, bullet lists, numbered lists, tables, and horizontal rules into native Word formatting (see below).
-
-**Output:** `Agents/final_reports/business_report.docx` — the final deliverable.
-
----
-
-## Tools Explained
-
-Tools live in the `Tools/` folder and are plain Python functions decorated with LangChain's `@tool` decorator, which exposes them to an agent as callable functions.
-
-### `Tools/search.py` — `search(query: str) -> list[str]`
-Wraps `langchain_tavily.TavilySearch` with `search_depth="fast"` and `max_results=5`. Given a text query, returns a list of relevant URLs (not page content — just links). Used exclusively by the Planner agent to find sources for each research sub-topic.
-
-### `Tools/scrape.py` — `scrape(url: str) -> str`
-Given a URL, performs an HTTP GET (10 second timeout) using `requests`, parses the HTML with `BeautifulSoup`, strips out `<script>`, `<style>`, `<nav>`, `<footer>`, `<header>`, and `<noscript>` tags, and returns the remaining visible text (capped at 6,000 characters to avoid blowing the LLM's context window). Returns a descriptive error string instead of raising if the page can't be fetched.
-
-### `Tools/html_to_md.py` — `html_to_md(html: str, filename: str) -> str`
-Converts raw HTML into Markdown using the `markdownify` library, then writes it to `Agents/outputs/{filename}` (creating the `outputs/` folder automatically if it doesn't exist). This is the tool responsible for actually persisting the Planner agent's scraped content to disk.
-
-### `Tools/md_to_docx.py` — `md_to_docx(input_file, output_file, title=None) -> str`
-The most substantial tool in the project — a hand-written Markdown → DOCX converter built on `python-docx`. It does **not** rely on any third-party Markdown-to-Word library; instead it implements its own line-by-line parser that supports:
-- Headings (`#` through `####`) mapped to Word heading styles
-- **Bold** and *italic* inline text (including `_underscore italics_`)
-- Bulleted and numbered lists
-- Markdown tables (`| col | col |` syntax with header/separator detection), rendered as native Word tables with the "Light Grid Accent 1" style
-- Horizontal rules (`---`, `***`, `___`) rendered as a bottom-border paragraph
-- An optional title page (centered, large bold title + page break) if a `title` argument is passed
-- Consistent document-wide styling: Calibri font, 1-inch margins, and sized/spaced heading styles for a professional look
-
-This tool is what turns the final Markdown report into the polished `.docx` file the user actually receives.
 
 ---
 
 ## Setup & Installation
 
-### 1. Clone / download the project
+### 1) Clone repository
 ```bash
-git clone <your-repo-url>
-cd AutonomousBusinessResearchAgentLangchain
+git clone https://github.com/xTalhaop/AutonomousBusinessResearchAgentUsingLangchain.git
+cd AutonomousBusinessResearchAgentUsingLangchain
 ```
 
-### 2. Create and activate a virtual environment
+### 2) Create virtual environment
 ```bash
 python -m venv .venv
+```
 
-# Windows
-.venv\Scripts\activate
+Activate it:
 
-# macOS / Linux
+- **Windows (PowerShell):**
+```bash
+.venv\Scripts\Activate.ps1
+```
+
+- **Windows (CMD):**
+```bash
+.venv\Scripts\activate.bat
+```
+
+- **macOS/Linux:**
+```bash
 source .venv/bin/activate
 ```
 
-### 3. Install dependencies
+### 3) Install dependencies
 ```bash
 pip install -r requirements.txt
 ```
-
-### 4. Create your `.env` file
-Create a file named `.env` in the project root (same level as `main.py`) with your API keys — see [Environment Variables](#environment-variables) below.
 
 ---
 
 ## Environment Variables
 
-This project needs API keys for three services. Create a `.env` file in the project root:
+Create `.env` in project root:
 
 ```env
-GOOGLE_API_KEY=your_google_gemini_api_key_here
-GROQ_API_KEY=your_groq_api_key_here
-TAVILY_API_KEY=your_tavily_api_key_here
+GOOGLE_API_KEY=your_google_api_key
+GROQ_API_KEY=your_groq_api_key
+TAVILY_API_KEY=your_tavily_api_key
 ```
 
-| Variable | Used By | Where to get it |
-|---|---|---|
-| `GOOGLE_API_KEY` | Planner agent, Report Generator agent | [Google AI Studio](https://aistudio.google.com/apikey) |
-| `GROQ_API_KEY` | Cleaner agent, Merger agent | [console.groq.com](https://console.groq.com/keys) |
-| `TAVILY_API_KEY` | `Tools/search.py` | [tavily.com](https://tavily.com) |
-
-**Important formatting note:** each line must be exactly `KEY=value` with no quotes, no spaces around the `=`, and no trailing comments on the same line — `python-dotenv` will silently fail to parse malformed lines (you'll see a `python-dotenv could not parse statement...` warning at startup if a line is broken, and that key simply won't load, which usually surfaces later as an authentication error).
+| Variable | Used in |
+|---|---|
+| `GOOGLE_API_KEY` | Planner + Final Report Generator |
+| `GROQ_API_KEY` | Cleaner + Merger |
+| `TAVILY_API_KEY` | Search tool |
 
 ---
 
 ## How to Run
 
-From the project root (the folder containing `main.py`):
+From project root:
 
 ```bash
 python main.py
 ```
 
-You'll be prompted:
+You’ll see:
 
-```
+```text
 Enter business idea:
 ```
 
-Type any business idea in plain English, e.g.:
-
-```
-Enter business idea: Do deep research on web and give detailed content about the poultry business
-```
-
-The pipeline then runs all four stages automatically, printing progress for each:
-
-```
-============================================================
-STEP 1 : Planner Agent
-============================================================
-...
-
-============================================================
-STEP 2 : Cleaning Agent
-============================================================
-...
-
-============================================================
-STEP 3 : Merge Agent
-============================================================
-...
-
-============================================================
-STEP 4 : Report Generator
-============================================================
-...
-
-Project completed successfully.
+Example input:
+```text
+Do deep research on web and give detailed content about poultry farming business
 ```
 
-Depending on how many sources are researched, the full run typically takes several minutes — most of the time is spent in Stage 1 (web search + scraping) and Stage 2 (cleaning runs once per file).
-
-### Running a single stage on its own
-Each agent file can also be run independently for debugging, since every stage reads from disk rather than requiring in-memory state from the previous stage:
-
-```bash
-python Agents/planner.py     # only run the collector
-python Agents/cleaner.py     # only re-run cleaning on whatever is in outputs/
-python Agents/merger.py      # only re-merge whatever is in cleaned_outputs/
-python Agents/final_report_generator.py   # only re-export the docx
-```
-
-This is especially useful if a later stage fails — you don't need to re-run Stage 1's web scraping every time.
+Pipeline runs all 4 stages in order and produces final docx.
 
 ---
 
-## Output Files & Where They Go
+## Outputs & Artifacts
 
-| Folder | Created By | Contents |
+| Path | Produced by | Description |
 |---|---|---|
-| `Agents/outputs/` | Stage 1 (Planner) | Raw, unclean `.md` files, one per scraped page |
-| `Agents/cleaned_outputs/` | Stage 2 (Cleaner) | Same files, noise-stripped, suffixed `_clean.md` |
-| `Agents/merged_output/` | Stage 3 (Merger) | Single file: `merged_report.md` — the complete report in Markdown |
-| `Agents/final_reports/` | Stage 4 (Report Generator) | Single file: `business_report.docx` — the final deliverable |
-
-All four folders are created automatically at runtime — nothing needs to be set up by hand.
+| `data/outputs/*.md` | Planner | Raw scraped markdown pages |
+| `data/cleaned_outputs/*_clean.md` | Cleaner | Noise-cleaned markdown files |
+| `data/merged_output/merged_report.md` | Merger | Unified markdown business report |
+| `data/final_reports/business_report.docx` | Final Report Generator | Final polished deliverable |
 
 ---
 
-## Design Decisions & Known Limitations
+## Design Decisions
 
-- **Path resolution:** All stages resolve their input/output folders relative to their own file location (`Path(__file__).resolve().parent`), not the current working directory. This means the pipeline behaves consistently whether you run `python main.py` from the project root or run an individual agent file directly from inside `Agents/`.
-- **No shared memory between agents:** Each agent only knows what's on disk. This is a deliberate tradeoff for reliability and resumability over raw speed.
-- **Fixed 13-topic research structure:** The Planner always researches the same 13 sub-topics regardless of business type. This gives consistent report structure across any business idea, but means very niche businesses may get some generic sections.
-- **Scrape content is capped at 6,000 characters per page** to control token usage — very long articles will be truncated.
-- **The DOCX converter is a custom Markdown parser**, not a full CommonMark implementation — it supports the constructs the report-generation prompt is instructed to produce (headings, bold/italic, lists, tables, horizontal rules) but is not a general-purpose Markdown renderer.
+1. **File-based stage boundaries**
+   - Each stage reads/writes from disk.
+   - Easier restart/recovery and debugging.
+
+2. **Single-responsibility agents**
+   - Planner collects, cleaner cleans, merger structures, exporter formats.
+   - Better maintainability than one monolithic mega-prompt.
+
+3. **Hybrid LLM providers**
+   - Gemini for tool-heavy stages.
+   - Groq Llama for transformation/synthesis stages.
+
+4. **Custom DOCX rendering**
+   - Predictable professional formatting.
+   - Easy extension over time.
+
+---
+
+## Known Limitations
+
+- Scraped text is capped at ~6000 chars in `scrape.py`.
+- Markdown parser in `md_to_docx` is intentionally partial (focused on practical report syntax).
+- No citation validation/scoring layer yet.
+- Planner depends on web accessibility and source availability.
+- Agent outputs can vary based on model behavior and provider-side changes.
 
 ---
 
 ## Troubleshooting
 
-**`python-dotenv could not parse statement starting at line N`**
-A line in your `.env` file isn't valid `KEY=VALUE` syntax. Check line N for stray quotes, spaces around `=`, or inline comments.
+### `.env` parsing errors
+Ensure every line is exactly `KEY=value` with no extra characters.
 
-**`FileNotFoundError` in Stage 4 (`merged_output/merged_report.md` not found)**
-This happens if any stage's paths are relative to the current working directory instead of the script's own location. Make sure every agent file resolves its folders via `Path(__file__).resolve().parent`, and always run `main.py` from the project root.
+### Stage 4 says merged report missing
+Make sure Stage 3 completed and `data/merged_output/merged_report.md` exists.
 
-**A sub-topic in Stage 1 comes back empty / "couldn't find good information"**
-This is expected and by design — the Planner is instructed to report gaps honestly rather than fabricate information. Re-running Stage 1 alone, or manually adding sources to `outputs/`, can fill the gap before re-running Stages 2-4.
+### Search returns weak sources
+Increase Tavily depth/results or broaden query phrasing in planner prompt.
 
-**Groq or Gemini authentication errors**
-Double-check `.env` formatting (see above) and confirm the relevant API key hasn't expired or hit a rate limit.
+### Scrape failures
+Some sites block scraping or require JS rendering (currently not implemented).
+
+### DOCX formatting edge cases
+Complex/nested markdown constructs may need parser extension in `Tools/md_to_docx.py`.
 
 ---
+
+## Future Improvements
+
+- Add source quality scoring + citation extraction.
+- Add optional Playwright-based scraper for JS-heavy pages.
+- Add concurrency in Planner sub-topic collection.
+- Add retry/backoff and dead-link replacement strategy.
+- Add optional PDF export pipeline.
+- Add evaluation harness for report quality checks.
+
+---
+
+## Quick Summary
+
+This project is a practical, modular, production-style multi-agent pipeline for business research:
+
+- **Collect** broadly  
+- **Clean** losslessly  
+- **Merge** coherently  
+- **Export** professionally  
+
+If you want, next I can also give you a **second short README version** (portfolio style) and keep this one as the full technical documentation.
